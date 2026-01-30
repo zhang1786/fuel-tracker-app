@@ -10,106 +10,7 @@ from datetime import datetime
 from typing import List, Dict
 
 
-class FuelTrackerSimple:
-    def __init__(self, data_file: str = "fuel_records_simple.json"):
-        self.data_file = data_file
-        self.records: List[Dict] = []
-        self.load_data()
-
-    def load_data(self):
-        """从文件加载数据"""
-        if os.path.exists(self.data_file):
-            try:
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    self.records = json.load(f)
-            except Exception as e:
-                print(f"加载数据失败: {e}")
-                self.records = []
-
-    def save_data(self):
-        """保存数据到文件"""
-        try:
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(self.records, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"保存数据失败: {e}")
-
-    def add_record(self, date: str, odometer: float, fuel_amount: float, fuel_price: float, station: str = "", note: str = ""):
-        """添加加油记录"""
-        cost = fuel_amount * fuel_price
-        record = {
-            "date": date,
-            "odometer": odometer,
-            "fuel_amount": fuel_amount,
-            "fuel_price": fuel_price,
-            "station": station,
-            "note": note,
-            "cost": round(cost, 2)
-        }
-        self.records.append(record)
-        self.records.sort(key=lambda x: x["date"])  # 按日期排序
-        self.save_data()
-        return record
-
-    def calculate_fuel_efficiency(self) -> List[Dict]:
-        """计算每次加油的油耗"""
-        results = []
-        sorted_records = sorted(self.records, key=lambda x: x["odometer"])
-
-        for i in range(1, len(sorted_records)):
-            prev_record = sorted_records[i-1]
-            curr_record = sorted_records[i]
-
-            distance = curr_record["odometer"] - prev_record["odometer"]
-            fuel_used = curr_record["fuel_amount"]
-
-            if distance > 0 and fuel_used > 0:
-                efficiency = distance / fuel_used  # km/L
-                consumption = (fuel_used / distance) * 100  # L/100km
-
-                results.append({
-                    "date": curr_record["date"],
-                    "distance": round(distance, 2),
-                    "fuel_used": round(fuel_used, 2),
-                    "efficiency_km_per_l": round(efficiency, 2),
-                    "consumption_l_per_100km": round(consumption, 2),
-                    "from_odometer": prev_record["odometer"],
-                    "to_odometer": curr_record["odometer"]
-                })
-
-        return results
-
-    def get_statistics(self) -> Dict:
-        """获取统计信息"""
-        if not self.records:
-            return {"total_records": 0}
-
-        total_cost = sum(record["cost"] for record in self.records)
-        total_fuel = sum(record["fuel_amount"] for record in self.records)
-        avg_price = total_cost / total_fuel if total_fuel > 0 else 0
-
-        # 获取里程范围
-        sorted_records = sorted(self.records, key=lambda x: x["odometer"])
-        total_distance = sorted_records[-1]["odometer"] - sorted_records[0]["odometer"] if len(sorted_records) > 1 else 0
-
-        # 计算平均油耗
-        efficiencies = self.calculate_fuel_efficiency()
-        avg_consumption = sum(item["consumption_l_per_100km"] for item in efficiencies) / len(efficiencies) if efficiencies else 0
-
-        return {
-            "total_records": len(self.records),
-            "total_cost": round(total_cost, 2),
-            "total_fuel": round(total_fuel, 2),
-            "average_price": round(avg_price, 2),
-            "total_distance": round(total_distance, 2),
-            "average_consumption": round(avg_consumption, 2),
-            "first_date": sorted_records[0]["date"] if sorted_records else None,
-            "last_date": sorted_records[-1]["date"] if sorted_records else None
-        }
-
-    def get_records(self) -> List[Dict]:
-        """获取所有记录"""
-        return self.records
+from simple_fuel_tracker import FuelTrackerSimple
 
 
 app = Flask(__name__)
@@ -157,12 +58,15 @@ def index():
                     <th>加油量(L)</th>
                     <th>费用(¥)</th>
                     <th>加油站</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
         '''
-        for record in recent_records:
+        for i, record in enumerate(recent_records):
             station = record['station'] if record['station'] else '-'
+            # 计算全局索引
+            global_index = next((idx for idx, r in enumerate(records) if r['date'] == record['date'] and r['odometer'] == record['odometer']), -1)
             recent_table += f'''
                 <tr>
                     <td>{record['date']}</td>
@@ -170,6 +74,7 @@ def index():
                     <td>{record['fuel_amount']}</td>
                     <td>{record['cost']}</td>
                     <td>{station}</td>
+                    <td><button onclick="deleteRecord({global_index})" class="delete-btn">删除</button></td>
                 </tr>
             '''
         recent_table += '''
@@ -193,15 +98,16 @@ def index():
                     <th>费用(¥)</th>
                     <th>加油站</th>
                     <th>备注</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
         '''
-        for record in records:
+        for i, record in enumerate(records):
             station = record['station'] if record['station'] else '-'
             note = record['note'] if record['note'] else '-'
             full_table += f'''
-                <tr>
+                <tr id="record-row-{i}">
                     <td>{record['date']}</td>
                     <td>{record['odometer']}</td>
                     <td>{record['fuel_amount']}</td>
@@ -209,6 +115,7 @@ def index():
                     <td>{record['cost']}</td>
                     <td>{station}</td>
                     <td>{note}</td>
+                    <td><button onclick="deleteRecord({i})" class="delete-btn">删除</button></td>
                 </tr>
             '''
         full_table += '''
@@ -319,6 +226,14 @@ def index():
         }
         button:hover {
             background-color: #0056b3;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
         }
         table {
             width: 100%;
@@ -508,6 +423,32 @@ def index():
             });
         });
         
+        // 删除记录函数
+        function deleteRecord(index) {
+            if (confirm('确定要删除这条记录吗？此操作不可撤销。')) {
+                fetch('/api/delete_record', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({index: index})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('记录删除成功！');
+                        location.reload(); // 刷新页面以更新记录列表
+                    } else {
+                        alert('删除失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('删除失败，请检查网络连接');
+                });
+            }
+        }
+        
         // 设置默认日期为今天
         document.getElementById('date').value = new Date().toISOString().split('T')[0];
     </script>
@@ -550,5 +491,23 @@ def api_add_record():
         return jsonify({"success": False, "message": str(e)}), 400
 
 
+@app.route('/api/delete_record', methods=['POST'])
+def api_delete_record():
+    try:
+        data = request.get_json()
+        index = int(data.get('index', -1))
+        
+        if index >= 0:
+            deleted_record = tracker.delete_record(index)
+            if deleted_record:
+                return jsonify({"success": True, "message": "记录已删除"})
+            else:
+                return jsonify({"success": False, "message": "无效的记录索引"}), 400
+        else:
+            return jsonify({"success": False, "message": "无效的索引"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False)

@@ -58,12 +58,15 @@ def index():
                     <th>加油量(L)</th>
                     <th>费用(¥)</th>
                     <th>加油站</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
         '''
-        for record in recent_records:
+        for i, record in enumerate(recent_records):
             station = record['station'] if record['station'] else '-'
+            # 计算全局索引
+            global_index = next((idx for idx, r in enumerate(records) if r['date'] == record['date'] and r['odometer'] == record['odometer']), -1)
             recent_table += f'''
                 <tr>
                     <td>{record['date']}</td>
@@ -71,6 +74,7 @@ def index():
                     <td>{record['fuel_amount']}</td>
                     <td>{record['cost']}</td>
                     <td>{station}</td>
+                    <td><button onclick="deleteRecord({global_index})" class="delete-btn">删除</button></td>
                 </tr>
             '''
         recent_table += '''
@@ -94,15 +98,16 @@ def index():
                     <th>费用(¥)</th>
                     <th>加油站</th>
                     <th>备注</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
         '''
-        for record in records:
+        for i, record in enumerate(records):
             station = record['station'] if record['station'] else '-'
             note = record['note'] if record['note'] else '-'
             full_table += f'''
-                <tr>
+                <tr id="record-row-{i}">
                     <td>{record['date']}</td>
                     <td>{record['odometer']}</td>
                     <td>{record['fuel_amount']}</td>
@@ -110,6 +115,7 @@ def index():
                     <td>{record['cost']}</td>
                     <td>{station}</td>
                     <td>{note}</td>
+                    <td><button onclick="deleteRecord({i})" class="delete-btn">删除</button></td>
                 </tr>
             '''
         full_table += '''
@@ -220,6 +226,14 @@ def index():
         }
         button:hover {
             background-color: #0056b3;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
         }
         table {
             width: 100%;
@@ -409,6 +423,32 @@ def index():
             });
         });
         
+        // 删除记录函数
+        function deleteRecord(index) {
+            if (confirm('确定要删除这条记录吗？此操作不可撤销。')) {
+                fetch('/api/delete_record', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({index: index})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('记录删除成功！');
+                        location.reload(); // 刷新页面以更新记录列表
+                    } else {
+                        alert('删除失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('删除失败，请检查网络连接');
+                });
+            }
+        }
+        
         // 设置默认日期为今天
         document.getElementById('date').value = new Date().toISOString().split('T')[0];
     </script>
@@ -447,6 +487,24 @@ def api_add_record():
         tracker.add_record(date, odometer, fuel_amount, fuel_price, station, note)
         
         return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
+@app.route('/api/delete_record', methods=['POST'])
+def api_delete_record():
+    try:
+        data = request.get_json()
+        index = int(data.get('index', -1))
+        
+        if index >= 0:
+            deleted_record = tracker.delete_record(index)
+            if deleted_record:
+                return jsonify({"success": True, "message": "记录已删除"})
+            else:
+                return jsonify({"success": False, "message": "无效的记录索引"}), 400
+        else:
+            return jsonify({"success": False, "message": "无效的索引"}), 400
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 400
 

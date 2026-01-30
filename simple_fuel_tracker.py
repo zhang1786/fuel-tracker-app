@@ -157,6 +157,14 @@ class FuelTrackerSimple:
                 "last_date": None
             }
 
+    def delete_record(self, index: int):
+        """删除指定索引的记录"""
+        if 0 <= index < len(self.records):
+            deleted_record = self.records.pop(index)
+            self.save_data()
+            return deleted_record
+        return None
+
     def get_records(self) -> List[Dict]:
         """获取所有记录"""
         return self.records
